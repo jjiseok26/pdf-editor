@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF 편집</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">PDF 편집</div>
+
+      <label class="btn primary">
+        열기
+        <input id="file-input" type="file" accept="application/pdf,.pdf" multiple hidden />
+      </label>
+      <button type="button" class="btn" id="merge-btn">병합</button>
+
+      <div class="divider"></div>
+
+      <div class="tool-group" role="radiogroup" aria-label="편집 도구">
+        <button type="button" class="btn tool active" data-tool="select">선택</button>
+        <button type="button" class="btn tool" data-tool="text">텍스트</button>
+        <button type="button" class="btn tool" data-tool="ocr">OCR 복사</button>
+        <button type="button" class="btn tool" data-tool="highlight">하이라이트</button>
+        <button type="button" class="btn tool" data-tool="pen">펜</button>
+        <button type="button" class="btn tool" data-tool="rect">사각형</button>
+        <button type="button" class="btn tool" data-tool="eraser">지우개</button>
+      </div>
+
+      <label class="color-wrap" title="색">
+        <input id="color-input" type="color" value="#ca8a04" />
+      </label>
+
+      <div class="divider"></div>
+
+      <div class="zoom-group">
+        <button type="button" class="btn icon" id="zoom-out" aria-label="축소">−</button>
+        <span id="zoom-label">100%</span>
+        <button type="button" class="btn icon" id="zoom-in" aria-label="확대">+</button>
+      </div>
+
+      <span id="status" class="status"></span>
+      <span id="autosave-label" class="autosave" hidden></span>
+
+      <div class="toolbar-end">
+        <button type="button" class="btn" id="print-btn" disabled>인쇄</button>
+        <button type="button" class="btn primary" id="save-btn" disabled>저장</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="sidebar-head">페이지</div>
+        <div id="thumbs" class="thumbs"></div>
+      </aside>
+
+      <main id="viewer" class="viewer">
+        <div id="empty" class="empty">
+          <p>PDF 파일을 열거나 여기에 놓으세요</p>
+          <p class="hint">여러 파일을 고르면 순서를 바꿔 병합할 수 있습니다. OCR 복사로 글자를 드래그해 복사하세요.</p>
+        </div>
+        <div id="pages" class="pages" hidden></div>
+      </main>
+    </div>
+
+    <p class="footnote">
+      텍스트는 글자를 넣고, 선택은 올린 글자·도형을 끌어 옮깁니다. OCR 복사는 영역을 드래그해 복사합니다.
+    </p>
+
+    <div id="ocr-panel" class="ocr-panel" hidden>
+      <div class="ocr-panel-head">
+        <strong>인식된 글자</strong>
+        <button type="button" class="btn" id="ocr-copy">복사</button>
+        <button type="button" class="btn" id="ocr-close">닫기</button>
+      </div>
+      <textarea id="ocr-text" rows="5"></textarea>
+    </div>
+
+    <dialog id="merge-dialog" class="merge-dialog">
+      <h2>PDF 병합</h2>
+      <p>파일을 추가하고 끌어 순서를 바꾼 뒤 하나로 합칩니다.</p>
+      <ol id="merge-list" class="merge-list"></ol>
+      <div class="merge-actions">
+        <label class="btn">
+          파일 추가
+          <input id="merge-input" type="file" accept="application/pdf,.pdf" multiple hidden />
+        </label>
+        <button type="button" class="btn primary" id="merge-run">합쳐서 열기</button>
+        <button type="button" class="btn" id="merge-close">닫기</button>
+      </div>
+    </dialog>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
