@@ -427,6 +427,9 @@ body[data-tool="ocr"] .overlay {
 }
 
 .footnote {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   margin: 0;
   padding: 6px 12px;
   font-size: 11px;
