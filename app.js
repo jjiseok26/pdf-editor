@@ -40,6 +40,8 @@ const els = {
   zoomOut: document.getElementById("zoom-out"),
   saveBtn: document.getElementById("save-btn"),
   printBtn: document.getElementById("print-btn"),
+  compressBtn: document.getElementById("compress-btn"),
+  imageBtn: document.getElementById("image-btn"),
   mergeBtn: document.getElementById("merge-btn"),
   mergeDialog: document.getElementById("merge-dialog"),
   mergeList: document.getElementById("merge-list"),
@@ -172,6 +174,27 @@ function extractTextItems(content, viewport, pageId) {
   return items;
 }
 
+function hitPdfText(page, pt) {
+  const covered = new Set(
+    state.annotations
+      .filter((a) => a.pageId === page.id && a.sourceId)
+      .map((a) => a.sourceId)
+  );
+  const items = (page.textItems || []).slice().reverse();
+  for (const item of items) {
+    if (covered.has(item.id)) continue;
+    if (
+      pt.x >= item.x - 2 &&
+      pt.x <= item.x + item.width + 2 &&
+      pt.y >= item.y - 2 &&
+      pt.y <= item.y + item.height + 2
+    ) {
+      return item;
+    }
+  }
+  return null;
+}
+
 function distToSegment(p, a, b) {
   const abx = b.x - a.x;
   const aby = b.y - a.y;
@@ -194,6 +217,8 @@ function moveAnnotation(ann, dx, dy) {
 function setDocButtons(enabled) {
   els.saveBtn.disabled = !enabled;
   els.printBtn.disabled = !enabled;
+  if (els.compressBtn) els.compressBtn.disabled = !enabled;
+  if (els.imageBtn) els.imageBtn.disabled = !enabled;
 }
 
 function openDraftDb() {
@@ -640,10 +665,17 @@ function drawOverlay(page) {
   const anns = annotationsFor(page.id);
   if (state.draft && state.draft.pageId === page.id) anns.push(state.draft);
 
+  for (const ann of anns) paintTextCover(ctx, ann, zoom);
   for (const ann of anns) {
     const selected = ann.id && ann.id === state.selectedId;
     paintAnnotation(ctx, ann, zoom, selected);
   }
+}
+
+function paintTextCover(ctx, ann, zoom) {
+  if (!ann.coverW) return;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(ann.coverX * zoom, ann.coverY * zoom, ann.coverW * zoom, ann.coverH * zoom);
 }
 
 function paintAnnotation(ctx, ann, zoom, selected) {
@@ -709,6 +741,7 @@ function bindOverlay(overlay, page) {
   overlay.addEventListener("pointermove", (event) => onPointerMove(event, page));
   overlay.addEventListener("pointerup", (event) => onPointerUp(event, page, overlay));
   overlay.addEventListener("pointercancel", (event) => onPointerUp(event, page, overlay));
+  overlay.addEventListener("dblclick", (event) => onDoubleClick(event, page));
 }
 
 function finishTextEditor() {
@@ -718,6 +751,7 @@ function finishTextEditor() {
 
 function onPointerDown(event, page, overlay) {
   if (event.button !== 0) return;
+  if (event.detail > 1) return;
   finishTextEditor();
   setActivePage(page.id);
   const pt = eventToPdf(event, page);
@@ -727,6 +761,11 @@ function onPointerDown(event, page, overlay) {
     if (hit && hit.type === "text") {
       beginAnnDrag(hit, pt, overlay, event);
       drawOverlay(page);
+      return;
+    }
+    const native = hitPdfText(page, pt);
+    if (native) {
+      startTextInput(page, { x: native.x, y: native.y }, { nativeItem: native });
       return;
     }
     startTextInput(page, pt);
@@ -824,8 +863,17 @@ function onPointerUp(event, page, overlay) {
     overlay.releasePointerCapture(event.pointerId);
   }
   document.body.classList.remove("is-dragging");
+  const drag = state.drag;
   state.drag = null;
   state.eraserStroke = false;
+
+  if (drag && !drag.moved) {
+    const ann = state.annotations.find((a) => a.id === drag.id);
+    if (ann?.type === "text" && state.tool === "text") {
+      startTextInput(page, { x: ann.x, y: ann.y }, { ann });
+      return;
+    }
+  }
 
   const draft = state.draft;
   if (!draft || draft.pageId !== page.id) return;
@@ -858,55 +906,99 @@ function eraseAt(pageId, pt) {
   drawOverlay(pageById(pageId));
 }
 
-function startTextInput(page, pt) {
+function startTextInput(page, pt, opts = {}) {
   const wrap = document.getElementById(`view-${page.id}`);
   const existing = wrap.querySelector(".text-editor");
   if (existing) existing.remove();
 
+  const ann = opts.ann;
+  const native = opts.nativeItem;
+  const fontSize = ann?.fontSize || native?.fontSize || 14;
+  const color = ann?.color || state.color;
+  const initial = opts.text ?? ann?.text ?? native?.str ?? "";
+
   const editor = document.createElement("textarea");
   editor.className = "text-editor";
-  editor.rows = 1;
+  editor.rows = Math.max(1, String(initial).split("\n").length);
   editor.placeholder = "텍스트 입력";
+  editor.value = initial;
   editor.style.left = `${pt.x * state.zoom}px`;
   editor.style.top = `${pt.y * state.zoom}px`;
-  editor.style.color = state.color;
-  editor.style.fontSize = `${14 * state.zoom}px`;
+  editor.style.color = color;
+  editor.style.fontSize = `${fontSize * state.zoom}px`;
   wrap.appendChild(editor);
   editor.focus();
+  editor.select();
 
+  let cancelled = false;
   const commit = () => {
-    const text = editor.value.replace(/\s+$/, "");
+    const text = cancelled ? initial : editor.value.replace(/\s+$/, "");
     editor.remove();
+    if (cancelled) return;
+
+    if (ann) {
+      if (text === ann.text) return;
+      pushHistory();
+      if (!text) {
+        state.annotations = state.annotations.filter((a) => a.id !== ann.id);
+        if (state.selectedId === ann.id) state.selectedId = null;
+      } else {
+        const lines = text.split("\n");
+        ann.text = text;
+        ann.width = Math.max(...lines.map((line) => measureText(line, fontSize)), 12);
+        ann.height = lines.length * fontSize * 1.35;
+      }
+      drawOverlay(page);
+      return;
+    }
+
     if (!text) return;
     const lines = text.split("\n");
-    const fontSize = 14;
-    const width = Math.max(
-      ...lines.map((line) => measureText(line, fontSize)),
-      12
-    );
     pushHistory();
-    state.annotations.push({
+    const next = {
       id: uid(),
       type: "text",
       pageId: page.id,
       x: pt.x,
       y: pt.y,
-      width,
+      width: Math.max(...lines.map((line) => measureText(line, fontSize)), 12),
       height: lines.length * fontSize * 1.35,
       text,
-      color: state.color,
+      color,
       fontSize,
-    });
+    };
+    if (native) {
+      next.sourceId = native.id;
+      next.coverX = native.x;
+      next.coverY = native.y;
+      next.coverW = native.width;
+      next.coverH = native.height;
+      next.color = "#1c1917";
+    }
+    state.annotations.push(next);
     drawOverlay(page);
   };
 
   editor.addEventListener("blur", commit);
   editor.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
-      editor.value = "";
+      cancelled = true;
       editor.blur();
     }
   });
+}
+
+function onDoubleClick(event, page) {
+  const pt = eventToPdf(event, page);
+  const hit = hitTest(page.id, pt);
+  if (hit?.type === "text") {
+    startTextInput(page, { x: hit.x, y: hit.y }, { ann: hit });
+    return;
+  }
+  const native = hitPdfText(page, pt);
+  if (native) {
+    startTextInput(page, { x: native.x, y: native.y }, { nativeItem: native });
+  }
 }
 
 function measureText(text, fontSize) {
@@ -943,12 +1035,129 @@ async function buildPdfBytes() {
   state.pages.forEach((meta, i) => {
     const pdfPage = out.getPage(i);
     const { width, height } = pdfPage.getSize();
-    for (const ann of annotationsFor(meta.id)) {
+    const anns = annotationsFor(meta.id);
+    for (const ann of anns) {
+      if (ann.coverW) {
+        pdfPage.drawRectangle({
+          x: ann.coverX - 0.5,
+          y: toPdfLibY(ann.coverY - 0.5, height, ann.coverH + 1),
+          width: ann.coverW + 1,
+          height: ann.coverH + 1,
+          color: PDFLib.rgb(1, 1, 1),
+          borderWidth: 0,
+        });
+      }
+    }
+    for (const ann of anns) {
       paintPdfAnnotation(pdfPage, ann, width, height, font);
     }
   });
 
   return out.save();
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)}KB`;
+  return `${(n / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function fileBase() {
+  return state.fileName.replace(/\.pdf$/i, "") || "document";
+}
+
+async function renderPageToCanvas(page, scale) {
+  const pdfPage = await state.pdf.getPage(page.originalIndex);
+  const viewport = pdfPage.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(viewport.width));
+  canvas.height = Math.max(1, Math.round(viewport.height));
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+  const anns = annotationsFor(page.id);
+  for (const ann of anns) paintTextCover(ctx, ann, scale);
+  for (const ann of anns) paintAnnotation(ctx, ann, scale, false);
+  return canvas;
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("이미지를 만들지 못했습니다."));
+    }, type, quality);
+  });
+}
+
+async function buildCompressedPdfBytes() {
+  const out = await PDFLib.PDFDocument.create();
+  const scale = 1.35;
+  const quality = 0.58;
+  for (const page of state.pages) {
+    const canvas = await renderPageToCanvas(page, scale);
+    const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
+    const pdfPage = out.addPage([page.width, page.height]);
+    pdfPage.drawImage(img, { x: 0, y: 0, width: page.width, height: page.height });
+  }
+  return out.save({ useObjectStreams: true });
+}
+
+async function exportCompressedPdf() {
+  if (!state.originalBytes || !state.pages.length) return;
+  setStatus("압축 저장하는 중…");
+  setDocButtons(false);
+  try {
+    const bytes = await buildCompressedPdfBytes();
+    downloadBlob(new Blob([bytes], { type: "application/pdf" }), `${fileBase()}-small.pdf`);
+    setStatus(`압축 저장했습니다 (${formatBytes(bytes.length)})`);
+  } catch (err) {
+    console.error(err);
+    setStatus(err.message || "압축 저장에 실패했습니다.");
+  } finally {
+    setDocButtons(true);
+  }
+}
+
+async function exportImages() {
+  if (!state.originalBytes || !state.pages.length) return;
+  setStatus("이미지로 변환하는 중…");
+  setDocButtons(false);
+  try {
+    const base = fileBase();
+    if (state.pages.length === 1) {
+      const canvas = await renderPageToCanvas(state.pages[0], 1.6);
+      const blob = await canvasToBlob(canvas, "image/jpeg", 0.86);
+      downloadBlob(blob, `${base}.jpg`);
+    } else {
+      if (typeof JSZip === "undefined") throw new Error("ZIP 라이브러리를 불러오지 못했습니다.");
+      const zip = new JSZip();
+      for (let i = 0; i < state.pages.length; i += 1) {
+        setStatus(`이미지로 변환하는 중… ${i + 1}/${state.pages.length}`);
+        const canvas = await renderPageToCanvas(state.pages[i], 1.6);
+        const blob = await canvasToBlob(canvas, "image/jpeg", 0.86);
+        zip.file(`${base}-${i + 1}.jpg`, blob);
+      }
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      downloadBlob(zipBlob, `${base}-images.zip`);
+    }
+    setStatus("이미지로 저장했습니다.");
+  } catch (err) {
+    console.error(err);
+    setStatus(err.message || "이미지 저장에 실패했습니다.");
+  } finally {
+    setDocButtons(true);
+  }
 }
 
 async function exportPdf() {
@@ -959,12 +1168,7 @@ async function exportPdf() {
   try {
     const bytes = await buildPdfBytes();
     const blob = new Blob([bytes], { type: "application/pdf" });
-    const a = document.createElement("a");
-    const base = state.fileName.replace(/\.pdf$/i, "");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${base}-edited.pdf`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadBlob(blob, `${fileBase()}-edited.pdf`);
     setStatus("저장했습니다.");
   } catch (err) {
     console.error(err);
@@ -1354,6 +1558,8 @@ function bindUi() {
   });
 
   els.saveBtn.addEventListener("click", exportPdf);
+  els.compressBtn.addEventListener("click", exportCompressedPdf);
+  els.imageBtn.addEventListener("click", exportImages);
   els.printBtn.addEventListener("click", printPdf);
   els.mergeBtn.addEventListener("click", openMergeDialog);
   els.mergeClose.addEventListener("click", () => els.mergeDialog.close());

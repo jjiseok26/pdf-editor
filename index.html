@@ -51,6 +51,8 @@
 
       <div class="toolbar-end">
         <button type="button" class="btn" id="print-btn" disabled>인쇄</button>
+        <button type="button" class="btn" id="image-btn" disabled>이미지</button>
+        <button type="button" class="btn" id="compress-btn" disabled>압축 저장</button>
         <button type="button" class="btn primary" id="save-btn" disabled>저장</button>
       </div>
     </header>
@@ -71,7 +73,7 @@
     </div>
 
     <p class="footnote">
-      <span>텍스트는 글자를 넣고, 선택은 올린 글자·도형을 끌어 옮깁니다. OCR 복사는 영역을 드래그해 복사합니다.</span>
+      <span>텍스트로 글자를 넣거나 원문·올린 글자를 더블클릭해 고칩니다. 압축 저장은 용량을 줄이고, 이미지는 JPG로 받습니다.</span>
       <span>© 2026 jiseok</span>
     </p>
 
@@ -102,6 +104,7 @@
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
