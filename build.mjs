@@ -4,7 +4,7 @@ import path from 'path';
 const root = process.cwd();
 const read = p => readFile(path.join(root, p), 'utf8');
 
-const [html, css, core, edit, io, fontkit, pdfjs, pdfLib, workerCode, fontB64] = await Promise.all([
+const [html, css, core, edit, io, fontkit, pdfjs, pdfLib, workerCode, fontB64, favSvg, favPng] = await Promise.all([
   read('index.html'),
   read('css/style.css'),
   read('js/core.js'),
@@ -14,7 +14,9 @@ const [html, css, core, edit, io, fontkit, pdfjs, pdfLib, workerCode, fontB64] =
   read('assets/vendor/pdf.min.js'),
   read('assets/vendor/pdf-lib.min.js'),
   read('assets/vendor/pdf.worker.min.js'),
-  readFile(path.join(root, 'assets/fonts/NanumGothic-Regular.ttf')).then(b => b.toString('base64'))
+  readFile(path.join(root, 'assets/fonts/NanumGothic-Regular.ttf')).then(b => b.toString('base64')),
+  read('assets/favicon.svg').then(s => Buffer.from(s).toString('base64')),
+  readFile(path.join(root, 'assets/favicon.png')).then(b => b.toString('base64'))
 ]);
 
 function toClassic(code) {
@@ -38,6 +40,10 @@ const cssStandalone = css
 
 let out = html
   .replace(/<script[^>]*><\/script>\s*\n?/g, '')
+  .replace('<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">',
+    `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,${favSvg}">`)
+  .replace('<link rel="alternate icon" type="image/png" href="assets/favicon.png">',
+    `<link rel="alternate icon" type="image/png" href="data:image/png;base64,${favPng}">`)
   .replace('<link rel="stylesheet" href="css/style.css">', `<style>\n${cssStandalone}\n</style>`)
   .replace('<title>PDF 편집기</title>', '<title>PDF 편집기 (오프라인)</title>');
 
